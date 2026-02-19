@@ -489,6 +489,7 @@ export default function EZShoppingApp() {
 
   // WebXR AR Measurement
   const [arSupported, setArSupported] = useState(false);
+  const arWebXRFailed = useRef(false); // true if requestSession ever threw
   const [, setArActive] = useState(false);
   const [arMeasureTarget, setArMeasureTarget] = useState(null); // 'width' | 'height' | null
   const arCanvasRef = useRef(null);
@@ -739,21 +740,24 @@ export default function EZShoppingApp() {
     if (arBottomRef.current) arBottomRef.current.style.display = distance ? 'flex' : 'none';
   };
 
-  const startARMeasure = async (measureTarget = null) => {
-    // Fallback: if WebXR not available, use camera-based calibration + tap flow
-    if (!arSupported) {
-      setArMeasureTarget(measureTarget);
-      if (!referenceCalibration) {
-        if (cameraStream) {
-          setShowCardCalibration(true);
-        }
-      } else {
-        setTapMeasureTarget(measureTarget || 'width');
-        setShowTapMeasure(true);
+  const startCameraFallback = (measureTarget) => {
+    setArMeasureTarget(measureTarget);
+    if (!referenceCalibration) {
+      if (cameraStream) {
+        setShowCardCalibration(true);
       }
+    } else {
+      setTapMeasureTarget(measureTarget || 'width');
+      setShowTapMeasure(true);
+    }
+  };
+
+  const startARMeasure = async (measureTarget = null) => {
+    // Fallback: if WebXR not available or previously failed, use camera-based flow
+    if (!arSupported || !navigator.xr || arWebXRFailed.current) {
+      startCameraFallback(measureTarget);
       return;
     }
-    if (!navigator.xr) return;
     try {
       setArMeasureTarget(measureTarget);
       arPointsRef.current = [];
@@ -855,7 +859,9 @@ export default function EZShoppingApp() {
         arRefSpaceRef.current = null;
       });
     } catch {
-      // WebXR AR not available or session failed
+      // WebXR session failed — remember so future calls skip straight to fallback
+      arWebXRFailed.current = true;
+      startCameraFallback(measureTarget);
     }
   };
 
@@ -2289,7 +2295,7 @@ export default function EZShoppingApp() {
               {measureMode === 'ar' && (
                 <div className="space-y-4">
                   <div className="text-center">
-                    {arSupported ? (
+                    {(arSupported && !arWebXRFailed.current) ? (
                       <>
                         <div className="bg-white/5 rounded-2xl p-6 mb-4">
                           <div className="text-4xl mb-3">📱</div>
