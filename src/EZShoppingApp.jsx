@@ -488,15 +488,10 @@ export default function EZShoppingApp() {
   } = useZoneDetection();
 
   // WebXR AR Measurement
-  const [arSupported, setArSupported] = useState(false);
-  const arWebXRFailed = useRef(false); // true if requestSession ever threw
-  const [, setArActive] = useState(false);
   const [arMeasureTarget, setArMeasureTarget] = useState(null); // 'width' | 'height' | null
   const arCanvasRef = useRef(null);
   const arOverlayRef = useRef(null);
   const arSessionRef = useRef(null);
-  const arRefSpaceRef = useRef(null);
-  const arLastHitRef = useRef(null);
   const arPointsRef = useRef([]);
   const arDistanceRef = useRef(null);
   // DOM refs for direct manipulation (no React re-renders in XR loop)
@@ -564,14 +559,6 @@ export default function EZShoppingApp() {
     localStorage.setItem('ez-shopping-theme', theme);
   }, [theme]);
 
-  // Check WebXR AR support
-  useEffect(() => {
-    if (navigator.xr) {
-      navigator.xr.isSessionSupported('immersive-ar')
-        .then(supported => setArSupported(supported))
-        .catch(() => {});
-    }
-  }, []);
 
   // Splash screen timer
   useEffect(() => {
@@ -752,117 +739,9 @@ export default function EZShoppingApp() {
     }
   };
 
-  const startARMeasure = async (measureTarget = null) => {
-    // Fallback: if WebXR not available or previously failed, use camera-based flow
-    if (!arSupported || !navigator.xr || arWebXRFailed.current) {
-      startCameraFallback(measureTarget);
-      return;
-    }
-    try {
-      setArMeasureTarget(measureTarget);
-      arPointsRef.current = [];
-      arDistanceRef.current = null;
-      arLastHitRef.current = null;
-
-      const overlay = arOverlayRef.current;
-      const sessionInit = {
-        requiredFeatures: ['hit-test'],
-      };
-      if (overlay) {
-        sessionInit.optionalFeatures = ['dom-overlay'];
-        sessionInit.domOverlay = { root: overlay };
-      }
-
-      const session = await navigator.xr.requestSession('immersive-ar', sessionInit);
-
-      const canvas = arCanvasRef.current;
-      const gl = canvas.getContext('webgl', { xrCompatible: true });
-
-      session.updateRenderState({
-        baseLayer: new XRWebGLLayer(session, gl),
-      });
-
-      const refSpace = await session.requestReferenceSpace('local');
-      const viewerSpace = await session.requestReferenceSpace('viewer');
-      const hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-
-      arSessionRef.current = session;
-      arRefSpaceRef.current = refSpace;
-      setArActive(true);
-
-      // Initial UI state
-      arUpdateUI(false, [], null);
-      if (arBottomRef.current) arBottomRef.current.style.display = 'none';
-
-      // Handle tap to place measurement points
-      session.addEventListener('select', () => {
-        const hitPos = arLastHitRef.current;
-        if (!hitPos) return;
-
-        const pts = arPointsRef.current;
-        if (pts.length >= 2) {
-          arPointsRef.current = [{ ...hitPos }];
-          arDistanceRef.current = null;
-        } else {
-          arPointsRef.current = [...pts, { ...hitPos }];
-        }
-
-        const updated = arPointsRef.current;
-        if (updated.length === 2) {
-          const dx = updated[1].x - updated[0].x;
-          const dy = updated[1].y - updated[0].y;
-          const dz = updated[1].z - updated[0].z;
-          const meters = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          arDistanceRef.current = {
-            meters,
-            inches: Math.round(meters * 39.3701),
-            feet: meters * 3.28084,
-          };
-        }
-        arUpdateUI(true, arPointsRef.current, arDistanceRef.current);
-      });
-
-      // Render loop — direct DOM updates only, no setState
-      let lastSurface = false;
-      const onFrame = (time, frame) => {
-        session.requestAnimationFrame(onFrame);
-        const glLayer = session.renderState.baseLayer;
-        gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-        const results = frame.getHitTestResults(hitTestSource);
-        let surfaceFound = false;
-        if (results.length > 0) {
-          const pose = results[0].getPose(refSpace);
-          if (pose) {
-            arLastHitRef.current = {
-              x: pose.transform.position.x,
-              y: pose.transform.position.y,
-              z: pose.transform.position.z,
-            };
-            surfaceFound = true;
-          }
-        }
-
-        // Only update DOM when surface state changes (not every frame)
-        if (surfaceFound !== lastSurface) {
-          lastSurface = surfaceFound;
-          arUpdateUI(surfaceFound, arPointsRef.current, arDistanceRef.current);
-        }
-      };
-
-      session.requestAnimationFrame(onFrame);
-
-      session.addEventListener('end', () => {
-        setArActive(false);
-        arSessionRef.current = null;
-        arRefSpaceRef.current = null;
-      });
-    } catch {
-      // WebXR session failed — remember so future calls skip straight to fallback
-      arWebXRFailed.current = true;
-      startCameraFallback(measureTarget);
-    }
+  const startARMeasure = (measureTarget = null) => {
+    // Always use camera-based flow — WebXR immersive-ar freezes on many Android devices
+    startCameraFallback(measureTarget);
   };
 
   const stopARMeasure = () => {
@@ -2295,35 +2174,7 @@ export default function EZShoppingApp() {
               {measureMode === 'ar' && (
                 <div className="space-y-4">
                   <div className="text-center">
-                    {(arSupported && !arWebXRFailed.current) ? (
-                      <>
-                        <div className="bg-white/5 rounded-2xl p-6 mb-4">
-                          <div className="text-4xl mb-3">📱</div>
-                          <p className="text-white font-medium mb-2">AR Measurement</p>
-                          <p className="text-sm text-gray-400">
-                            Point your phone at a surface, tap two points to measure the distance between them.
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => startARMeasure('width')}
-                            className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
-                              manualDimensions.width ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
-                            }`}
-                          >
-                            {manualDimensions.width ? `Width: ${manualDimensions.width}"` : 'Measure Width'}
-                          </button>
-                          <button
-                            onClick={() => startARMeasure('height')}
-                            className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
-                              manualDimensions.height ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
-                            }`}
-                          >
-                            {manualDimensions.height ? `Height: ${manualDimensions.height}"` : 'Measure Height'}
-                          </button>
-                        </div>
-                      </>
-                    ) : !referenceCalibration ? (
+                    {!referenceCalibration ? (
                       <>
                         <div className="bg-white/5 rounded-2xl p-6 mb-4">
                           <div className="text-4xl mb-3">📏</div>
@@ -2358,7 +2209,7 @@ export default function EZShoppingApp() {
                               manualDimensions.width ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
                             }`}
                           >
-                            {manualDimensions.width ? `Width: ${manualDimensions.width}"` : 'Tap Width'}
+                            {manualDimensions.width ? `Width: ${manualDimensions.width}"` : 'Measure Width'}
                           </button>
                           <button
                             onClick={() => { setTapMeasureTarget('height'); setShowTapMeasure(true); }}
@@ -2366,7 +2217,7 @@ export default function EZShoppingApp() {
                               manualDimensions.height ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
                             }`}
                           >
-                            {manualDimensions.height ? `Height: ${manualDimensions.height}"` : 'Tap Height'}
+                            {manualDimensions.height ? `Height: ${manualDimensions.height}"` : 'Measure Height'}
                           </button>
                         </div>
                         <button
