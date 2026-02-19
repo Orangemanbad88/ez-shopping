@@ -740,6 +740,19 @@ export default function EZShoppingApp() {
   };
 
   const startARMeasure = async (measureTarget = null) => {
+    // Fallback: if WebXR not available, use camera-based calibration + tap flow
+    if (!arSupported) {
+      setArMeasureTarget(measureTarget);
+      if (!referenceCalibration) {
+        if (cameraStream) {
+          setShowCardCalibration(true);
+        }
+      } else {
+        setTapMeasureTarget(measureTarget || 'width');
+        setShowTapMeasure(true);
+      }
+      return;
+    }
     if (!navigator.xr) return;
     try {
       setArMeasureTarget(measureTarget);
@@ -1927,15 +1940,13 @@ export default function EZShoppingApp() {
             <SlidersHorizontal className="w-4 h-4" />
             Filters
           </button>
-          {arSupported && (
-            <button
-              onClick={() => startARMeasure(null)}
-              className="px-4 py-2 rounded-full backdrop-blur-md flex items-center gap-2 border text-sm bg-teal-500/30 border-teal-500/50 text-teal-300"
-            >
-              <Ruler className="w-4 h-4" />
-              AR
-            </button>
-          )}
+          <button
+            onClick={() => startARMeasure(null)}
+            className="px-4 py-2 rounded-full backdrop-blur-md flex items-center gap-2 border text-sm bg-teal-500/30 border-teal-500/50 text-teal-300"
+          >
+            <Ruler className="w-4 h-4" />
+            Measure
+          </button>
         </div>
       </div>
 
@@ -2093,24 +2104,17 @@ export default function EZShoppingApp() {
                 >
                   💳 Reference
                 </button>
-                {arSupported && (
-                  <button
-                    onClick={() => setMeasureMode('ar')}
-                    className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
-                      measureMode === 'ar'
-                        ? 'bg-teal-500 text-white'
-                        : 'bg-white/5 text-gray-400 border border-white/10'
-                    }`}
-                  >
-                    📱 AR Scan
-                  </button>
-                )}
+                <button
+                  onClick={() => setMeasureMode('ar')}
+                  className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
+                    measureMode === 'ar'
+                      ? 'bg-teal-500 text-white'
+                      : 'bg-white/5 text-gray-400 border border-white/10'
+                  }`}
+                >
+                  📱 AR Scan
+                </button>
               </div>
-              {isIOS && !arSupported && (
-                <p className="text-xs text-gray-500 italic text-center -mt-2 mb-2">
-                  AR measurement is not available on iOS Safari. Use Manual or Reference instead.
-                </p>
-              )}
 
               {/* Manual Input */}
               {measureMode === 'manual' && (
@@ -2285,31 +2289,88 @@ export default function EZShoppingApp() {
               {measureMode === 'ar' && (
                 <div className="space-y-4">
                   <div className="text-center">
-                    <div className="bg-white/5 rounded-2xl p-6 mb-4">
-                      <div className="text-4xl mb-3">📱</div>
-                      <p className="text-white font-medium mb-2">AR Measurement</p>
-                      <p className="text-sm text-gray-400">
-                        Point your phone at a surface, tap two points to measure the distance between them.
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => startARMeasure('width')}
-                        className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
-                          manualDimensions.width ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
-                        }`}
-                      >
-                        {manualDimensions.width ? `Width: ${manualDimensions.width}"` : 'Measure Width'}
-                      </button>
-                      <button
-                        onClick={() => startARMeasure('height')}
-                        className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
-                          manualDimensions.height ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
-                        }`}
-                      >
-                        {manualDimensions.height ? `Height: ${manualDimensions.height}"` : 'Measure Height'}
-                      </button>
-                    </div>
+                    {arSupported ? (
+                      <>
+                        <div className="bg-white/5 rounded-2xl p-6 mb-4">
+                          <div className="text-4xl mb-3">📱</div>
+                          <p className="text-white font-medium mb-2">AR Measurement</p>
+                          <p className="text-sm text-gray-400">
+                            Point your phone at a surface, tap two points to measure the distance between them.
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => startARMeasure('width')}
+                            className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
+                              manualDimensions.width ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
+                            }`}
+                          >
+                            {manualDimensions.width ? `Width: ${manualDimensions.width}"` : 'Measure Width'}
+                          </button>
+                          <button
+                            onClick={() => startARMeasure('height')}
+                            className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
+                              manualDimensions.height ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
+                            }`}
+                          >
+                            {manualDimensions.height ? `Height: ${manualDimensions.height}"` : 'Measure Height'}
+                          </button>
+                        </div>
+                      </>
+                    ) : !referenceCalibration ? (
+                      <>
+                        <div className="bg-white/5 rounded-2xl p-6 mb-4">
+                          <div className="text-4xl mb-3">📏</div>
+                          <p className="text-white font-medium mb-2">Camera Measurement</p>
+                          <p className="text-sm text-gray-400">
+                            Calibrate with a credit card, then tap two points on the camera feed to measure.
+                          </p>
+                        </div>
+                        {cameraStream ? (
+                          <button
+                            onClick={() => setShowCardCalibration(true)}
+                            className="w-full py-3 rounded-xl bg-teal-500 text-white font-semibold"
+                          >
+                            Start Calibration
+                          </button>
+                        ) : (
+                          <p className="text-xs text-gray-500">
+                            Open the camera first to use this measurement mode.
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-4 mb-4">
+                          <p className="text-green-400 font-medium text-sm">Calibrated ({Math.round(referenceCalibration.pixelsPerInch)} px/in)</p>
+                        </div>
+                        <p className="text-sm text-gray-400 mb-4">Tap two points on the camera feed to measure each dimension</p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { setTapMeasureTarget('width'); setShowTapMeasure(true); }}
+                            className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
+                              manualDimensions.width ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
+                            }`}
+                          >
+                            {manualDimensions.width ? `Width: ${manualDimensions.width}"` : 'Tap Width'}
+                          </button>
+                          <button
+                            onClick={() => { setTapMeasureTarget('height'); setShowTapMeasure(true); }}
+                            className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
+                              manualDimensions.height ? 'bg-white/10 text-green-400 border border-green-500/30' : 'bg-teal-500 text-white'
+                            }`}
+                          >
+                            {manualDimensions.height ? `Height: ${manualDimensions.height}"` : 'Tap Height'}
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => setReferenceCalibration(null)}
+                          className="mt-3 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                        >
+                          Re-calibrate
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
